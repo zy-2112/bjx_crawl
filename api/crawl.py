@@ -72,7 +72,7 @@ class handler(BaseHTTPRequestHandler):
                     timeout=300  # 5 minute timeout
                 )
                 
-                # Enhanced error reporting
+                # Handle subprocess errors
                 if result.returncode != 0:
                     response = {
                         'success': False,
@@ -89,32 +89,55 @@ class handler(BaseHTTPRequestHandler):
                     try:
                         crawler_result = json.loads(result.stdout)
                         
-                        # Convert articles to CSV format
-                        import csv
-                        import io
-                        
-                        csv_buffer = io.StringIO()
-                        if crawler_result['articles']:
-                            fieldnames = ['title', 'date', 'url']
-                            writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
-                            writer.writeheader()
-                            writer.writerows(crawler_result['articles'])
-                        csv_data = csv_buffer.getvalue()
-                        csv_buffer.close()
-                        
-                        response = {
-                            'success': True,
-                            'message': f"Successfully crawled {crawler_result['total_articles_count']} articles",
-                            'articlesCount': crawler_result['total_articles_count'],
-                            'articles': crawler_result['articles'][:10],  # Return first 10 articles as preview
-                            'csvData': csv_data,
-                            'details': {
-                                'stdout': result.stdout,
-                                'stderr': result.stderr,
-                                'debug_info': debug_info
-                            },
-                            'timestamp': datetime.now().isoformat()
-                        }
+                        # Check if it's an error response from our crawler
+                        if isinstance(crawler_result, dict) and 'error' in crawler_result:
+                            response = {
+                                'success': False,
+                                'error': crawler_result['error'],
+                                'message': crawler_result.get('message', 'Crawler encountered an error'),
+                                'details': {
+                                    'crawler_details': crawler_result.get('details', ''),
+                                    'stderr': result.stderr,
+                                    'debug_info': debug_info
+                                }
+                            }
+                        else:
+                            # Handle successful response or fallback response with warning
+                            # Convert articles to CSV format
+                            import csv
+                            import io
+                            
+                            csv_buffer = io.StringIO()
+                            if crawler_result['articles']:
+                                fieldnames = ['title', 'date', 'url']
+                                writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+                                writer.writeheader()
+                                writer.writerows(crawler_result['articles'])
+                            csv_data = csv_buffer.getvalue()
+                            csv_buffer.close()
+                            
+                            response = {
+                                'success': True,
+                                'message': f"Successfully crawled {crawler_result['total_articles_count']} articles",
+                                'articlesCount': crawler_result['total_articles_count'],
+                                'articles': crawler_result['articles'][:10],  # Return first 10 articles as preview
+                                'csvData': csv_data,
+                                'details': {
+                                    'stdout': result.stdout,
+                                    'stderr': result.stderr,
+                                    'debug_info': debug_info
+                                },
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            # Add warning if present
+                            if 'warning' in crawler_result:
+                                response['warning'] = crawler_result['warning']
+                                response['message'] += f" ({crawler_result['warning']})"
+                            
+                            # Add network error flag if present
+                            if crawler_result.get('network_error', False):
+                                response['networkError'] = True
                     except json.JSONDecodeError as e:
                         # If we can't parse the JSON, it might be an error message
                         response = {

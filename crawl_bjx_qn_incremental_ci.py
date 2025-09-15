@@ -45,8 +45,35 @@ def crawl_and_return_data(max_pages: int = 10, force_full_crawl: bool = False):
         # Test network connectivity first
         logger.info("🔍 Testing network connectivity...")
         if not test_network_connectivity():
-            logger.error("❌ Network connectivity test failed.")
-            return None
+            logger.warning("❌ Network connectivity test failed. Attempting to load existing data...")
+            
+            # Try to load existing data as fallback
+            try:
+                existing_articles = load_existing_articles()
+                if existing_articles:
+                    logger.info(f"✅ Loaded {len(existing_articles)} existing articles as fallback")
+                    return {
+                        'articles': existing_articles,
+                        'new_articles_count': 0,
+                        'total_articles_count': len(existing_articles),
+                        'is_first_run': False,
+                        'warning': 'Network connectivity failed. Returning existing data.',
+                        'network_error': True
+                    }
+                else:
+                    logger.error("No existing articles found and network connectivity failed.")
+                    return {
+                        'error': 'NETWORK_ERROR',
+                        'message': 'Unable to connect to the target website and no existing data available.',
+                        'details': 'All connectivity tests failed and no cached data found. The website might be blocking requests from this serverless environment.'
+                    }
+            except Exception as e:
+                logger.error(f"Failed to load existing data: {e}")
+                return {
+                    'error': 'NETWORK_ERROR',
+                    'message': 'Unable to connect to the target website and failed to load existing data.',
+                    'details': f'Network tests failed and error loading cached data: {str(e)}'
+                }
         
         # Load crawl state
         state = load_crawl_state()
@@ -68,7 +95,32 @@ def crawl_and_return_data(max_pages: int = 10, force_full_crawl: bool = False):
             new_articles = crawl_incremental(BASE_URL, cutoff_time, max_pages)
         except Exception as e:
             logger.error(f"❌ Crawling failed: {e}")
-            return None
+            # Try to load existing data as fallback
+            try:
+                existing_articles = load_existing_articles()
+                if existing_articles:
+                    logger.info(f"✅ Loaded {len(existing_articles)} existing articles as fallback after crawl failure")
+                    return {
+                        'articles': existing_articles,
+                        'new_articles_count': 0,
+                        'total_articles_count': len(existing_articles),
+                        'is_first_run': False,
+                        'warning': f'Crawling failed: {str(e)}. Returning existing data.',
+                        'network_error': True
+                    }
+                else:
+                    return {
+                        'error': 'CRAWLING_ERROR',
+                        'message': f'Crawling failed: {str(e)}',
+                        'details': 'This might be due to network connectivity issues in the serverless environment and no cached data available.'
+                    }
+            except Exception as fallback_error:
+                logger.error(f"Failed to load existing data as fallback: {fallback_error}")
+                return {
+                    'error': 'CRAWLING_ERROR',
+                    'message': f'Crawling failed: {str(e)}',
+                    'details': f'This might be due to network connectivity issues and error loading cached data: {str(fallback_error)}'
+                }
         
         if is_first_run or force_full_crawl:
             # On first run or forced full crawl, return all articles directly
@@ -84,7 +136,31 @@ def crawl_and_return_data(max_pages: int = 10, force_full_crawl: bool = False):
         if not final_articles:
             if is_first_run or force_full_crawl:
                 logger.error("No articles were found during full crawl!")
-                return None
+                # Try to load existing data as fallback
+                try:
+                    existing_articles = load_existing_articles()
+                    if existing_articles:
+                        logger.info(f"✅ Loaded {len(existing_articles)} existing articles as fallback")
+                        return {
+                            'articles': existing_articles,
+                            'new_articles_count': 0,
+                            'total_articles_count': len(existing_articles),
+                            'is_first_run': False,
+                            'warning': 'No new articles found during full crawl. Returning existing data.',
+                            'network_error': False
+                        }
+                    else:
+                        return {
+                            'error': 'NO_ARTICLES_FOUND',
+                            'message': 'No articles were found during full crawl!',
+                            'details': 'The crawler completed successfully but found no articles and no cached data available.'
+                        }
+                except Exception as fallback_error:
+                    return {
+                        'error': 'NO_ARTICLES_FOUND',
+                        'message': 'No articles were found during full crawl!',
+                        'details': f'The crawler completed successfully but found no articles and error loading cached data: {str(fallback_error)}'
+                    }
             else:
                 logger.info("No new articles found since last crawl")
                 # Load existing articles to ensure we have something to output
