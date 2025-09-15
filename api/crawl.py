@@ -22,8 +22,6 @@ class handler(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             
-            print('🚀 Starting BJX QN crawler on Vercel...')
-            
             # Get parameters from query string
             import urllib.parse
             parsed_url = urllib.parse.urlparse(self.path)
@@ -31,8 +29,6 @@ class handler(BaseHTTPRequestHandler):
             
             max_pages = query_params.get('max_pages', ['3'])[0]
             force_full_crawl = query_params.get('force_full_crawl', ['false'])[0]
-            
-            print(f'Max pages: {max_pages}, Force full crawl: {force_full_crawl}')
             
             # Set environment variables
             env = os.environ.copy()
@@ -52,11 +48,6 @@ class handler(BaseHTTPRequestHandler):
                     text=True,
                     timeout=300  # 5 minute timeout
                 )
-                
-                print(f'Crawler exit code: {result.returncode}')
-                print(f'Crawler output: {result.stdout}')
-                if result.stderr:
-                    print(f'Crawler errors: {result.stderr}')
                 
                 if result.returncode != 0:
                     response = {
@@ -81,8 +72,6 @@ class handler(BaseHTTPRequestHandler):
                         
                         with open('articles.csv', 'r', encoding='utf-8') as f:
                             csv_data = f.read()
-                        
-                        print(f'✅ Crawler completed successfully - {len(articles)} articles found')
                         
                         response = {
                             'success': True,
@@ -111,7 +100,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
             
         except Exception as e:
-            print(f'❌ Vercel function error: {e}')
             error_response = {
                 'success': False,
                 'error': str(e),

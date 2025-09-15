@@ -22,9 +22,11 @@ from datetime import datetime, timezone, timedelta
 import logging
 
 # Configure logging for CI
+# For Vercel compatibility, we'll log to stderr instead of stdout
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,11 @@ def main():
             logger.error("❌ Network connectivity test failed. This might be a VPN/network issue.")
             logger.error("The target website may be blocking GitHub Actions IPs or require VPN access.")
             logger.error("Consider using a self-hosted runner or alternative approach.")
+            # For Vercel/serverless compatibility, output to stderr instead of stdout
+            if os.getenv('VERCEL') == '1':
+                print("ERROR: Network connectivity test failed", file=sys.stderr)
+            else:
+                print("ERROR: Network connectivity test failed")
             sys.exit(1)
         
         # Load crawl state
@@ -138,8 +145,13 @@ def main():
             })
             save_crawl_state(state)
             
-            print("WARNING: Crawling failed due to network issues, created empty files")
-            print(f"Files: {output_json}, {output_csv} (empty due to network error)")
+            # For Vercel/serverless compatibility, output to stderr instead of stdout
+            if os.getenv('VERCEL') == '1':
+                print("WARNING: Crawling failed due to network issues, created empty files", file=sys.stderr)
+                print(f"Files: {output_json}, {output_csv} (empty due to network error)", file=sys.stderr)
+            else:
+                print("WARNING: Crawling failed due to network issues, created empty files")
+                print(f"Files: {output_json}, {output_csv} (empty due to network error)")
             sys.exit(0)  # Exit with success to prevent workflow failure
         
         if is_first_run or force_full_crawl:
@@ -180,9 +192,15 @@ def main():
                 save_to_csv(final_articles, output_csv)
                 
                 # For CI, we still want to output success but indicate no new content
-                print("SUCCESS: No new articles found")
-                print(f"Files: {output_json}, {output_csv} (existing/empty)")
-                print(f"Last crawl: {last_crawl_time}")
+                # For Vercel/serverless compatibility, output to stderr instead of stdout
+                if os.getenv('VERCEL') == '1':
+                    print("SUCCESS: No new articles found", file=sys.stderr)
+                    print(f"Files: {output_json}, {output_csv} (existing/empty)", file=sys.stderr)
+                    print(f"Last crawl: {last_crawl_time}", file=sys.stderr)
+                else:
+                    print("SUCCESS: No new articles found")
+                    print(f"Files: {output_json}, {output_csv} (existing/empty)")
+                    print(f"Last crawl: {last_crawl_time}")
                 sys.exit(0)
         
         # Save results
@@ -197,26 +215,36 @@ def main():
         })
         save_crawl_state(state)
         
-        # Print summary for CI
-        if is_first_run or force_full_crawl:
-            print(f"SUCCESS: Full crawl completed - {len(final_articles)} articles")
+        # For Vercel/serverless compatibility, we need to be careful about stdout output
+        # Only output essential information for debugging purposes
+        if os.getenv('VERCEL') == '1':
+            # Minimal output for Vercel environment
+            print(f"Articles crawled: {len(final_articles)}", file=sys.stderr)
         else:
-            print(f"SUCCESS: Incremental crawl completed - {len(new_articles)} new articles")
-            print(f"Total articles: {len(final_articles)}")
+            # Full output for CI/local environments
+            if is_first_run or force_full_crawl:
+                print(f"SUCCESS: Full crawl completed - {len(final_articles)} articles")
+            else:
+                print(f"SUCCESS: Incremental crawl completed - {len(new_articles)} new articles")
+                print(f"Total articles: {len(final_articles)}")
+                
+            print(f"Files: {output_json}, {output_csv}")
             
-        print(f"Files: {output_json}, {output_csv}")
-        
-        # Output new articles count for GitHub Actions to use
-        if new_articles:
-            print(f"NEW_ARTICLES_COUNT={len(new_articles)}")
-            print(f"LATEST_ARTICLE_DATE={new_articles[0]['date'] if new_articles else 'N/A'}")
+            # Output new articles count for GitHub Actions to use
+            if new_articles:
+                print(f"NEW_ARTICLES_COUNT={len(new_articles)}")
+                print(f"LATEST_ARTICLE_DATE={new_articles[0]['date'] if new_articles else 'N/A'}")
         
         # Exit with success
         sys.exit(0)
         
     except Exception as e:
         logger.error(f"Crawler failed: {e}")
-        print(f"ERROR: {e}")
+        # For Vercel/serverless compatibility, output to stderr instead of stdout
+        if os.getenv('VERCEL') == '1':
+            print(f"ERROR: {e}", file=sys.stderr)
+        else:
+            print(f"ERROR: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':
