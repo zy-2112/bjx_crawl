@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BJX QN Crawler - Vercel</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background: #0070f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #0051cc;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .article-preview {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .article-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .article-item:last-child {
+            border-bottom: none;
+        }
+        .article-title {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .article-meta {
+            font-size: 12px;
+            color: #666;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0070f3;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔋 BJX QN Article Crawler</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            Crawl articles from qn.bjx.com.cn using Vercel serverless functions
+        </p>
+        
+        <form id="crawlForm">
+            <div class="form-group">
+                <label for="maxPages">Maximum Pages to Crawl:</label>
+                <input type="number" id="maxPages" name="max_pages" value="3" min="1" max="10">
+            </div>
+            
+            <div class="form-group">
+                <label for="forceFullCrawl">Force Full Crawl:</label>
+                <select id="forceFullCrawl" name="force_full_crawl">
+                    <option value="false">Incremental (recommended)</option>
+                    <option value="true">Full Crawl</option>
+                </select>
+            </div>
+            
+            <button type="submit" id="crawlButton">🚀 Start Crawling</button>
+        </form>
+        
+        <div id="loading" class="result loading" style="display: none;">
+            <p>🔄 Crawling in progress... This may take a few minutes.</p>
+        </div>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('crawlForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const params = new URLSearchParams(formData);
+            
+            const crawlButton = document.getElementById('crawlButton');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            // Show loading state
+            crawlButton.disabled = true;
+            crawlButton.textContent = '🔄 Crawling...';
+            loading.style.display = 'block';
+            result.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/crawl?${params.toString()}`);
+                const data = await response.json();
+                
+                // Hide loading
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    displaySuccess(data);
+                } else {
+                    displayError(data);
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                displayError({
+                    error: 'Network error: ' + error.message,
+                    output: ''
+                });
+            } finally {
+                crawlButton.disabled = false;
+                crawlButton.textContent = '🚀 Start Crawling';
+            }
+        });
+        
+        function displaySuccess(data) {
+            const result = document.getElementById('result');
+            result.className = 'result success';
+            result.style.display = 'block';
+            
+            result.innerHTML = `
+                <h3>✅ Crawling Successful!</h3>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-number">${data.articlesCount}</div>
+                        <div class="stat-label">Articles Found</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${new Date(data.timestamp).toLocaleTimeString()}</div>
+                        <div class="stat-label">Completed At</div>
+                    </div>
+                </div>
+                <p><strong>Message:</strong> ${data.message}</p>
+                <div class="article-preview">
+                    <h4>📰 Article Preview (first 10):</h4>
+                    ${data.articles.map(article => `
+                        <div class="article-item">
+                            <div class="article-title">${article.title}</div>
+                            <div class="article-meta">📅 ${article.date} | 🔗 <a href="${article.url}" target="_blank">View Article</a></div>
+                        </div>
+                    `).join('')}
+                </div>
+                <details style="margin-top: 15px;">
+                    <summary>📋 Raw Output</summary>
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px;">${data.output}</pre>
+                </details>
+            `;
+        }
+        
+        function displayError(data) {
+            const result = document.getElementById('result');
+            result.className = 'result error';
+            result.style.display = 'block';
+            
+            result.innerHTML = `
+                <h3>❌ Crawling Failed</h3>
+                <p><strong>Error:</strong> ${data.error}</p>
+                ${data.output ? `<details style="margin-top: 15px;">
+                    <summary>📋 Output Log</summary>
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px;">${data.output}</pre>
+                </details>` : ''}
+            `;
+        }
+    </script>
+</body>
+</html>

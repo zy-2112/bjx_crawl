@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/crawl.js": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/crawl",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
