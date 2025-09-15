@@ -1,0 +1,193 @@
+name: BJX QN Article Crawler (Parallel Connectivity Test)
+
+on:
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      force_full_crawl:
+        description: 'Force full crawl (ignore incremental state)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      max_pages:
+        description: 'Maximum pages to crawl'
+        required: false
+        default: '5'
+        type: string
+
+jobs:
+  # Test all runners in parallel to see which one works
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Test network connectivity (Ubuntu)
+      run: |
+        echo "🔍 Testing network connectivity from Ubuntu runner..."
+        uv run python3 -c "
+        import socket
+        import requests
+        try:
+            print('Testing DNS resolution...')
+            socket.gethostbyname('qn.bjx.com.cn')
+            print('✅ DNS resolution successful')
+            
+            print('Testing basic connectivity...')
+            response = requests.get('https://qn.bjx.com.cn', timeout=15)
+            print(f'✅ Basic connectivity test successful (status: {response.status_code})')
+            print('UBUNTU_WORKS=true')
+        except Exception as e:
+            print(f'❌ Ubuntu connectivity test failed: {e}')
+            print('UBUNTU_WORKS=false')
+            exit(1)
+        "
+
+  test-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Test network connectivity (Windows)
+      run: |
+        echo "🔍 Testing network connectivity from Windows runner..."
+        uv run python -c "
+        import socket
+        import requests
+        try:
+            print('Testing DNS resolution...')
+            socket.gethostbyname('qn.bjx.com.cn')
+            print('✅ DNS resolution successful')
+            
+            print('Testing basic connectivity...')
+            response = requests.get('https://qn.bjx.com.cn', timeout=15)
+            print(f'✅ Basic connectivity test successful (status: {response.status_code})')
+            print('WINDOWS_WORKS=true')
+        except Exception as e:
+            print(f'❌ Windows connectivity test failed: {e}')
+            print('WINDOWS_WORKS=false')
+            exit(1)
+        "
+
+  test-macos:
+    runs-on: macos-latest
+    continue-on-error: true
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Test network connectivity (macOS)
+      run: |
+        echo "🔍 Testing network connectivity from macOS runner..."
+        uv run python3 -c "
+        import socket
+        import requests
+        try:
+            print('Testing DNS resolution...')
+            socket.gethostbyname('qn.bjx.com.cn')
+            print('✅ DNS resolution successful')
+            
+            print('Testing basic connectivity...')
+            response = requests.get('https://qn.bjx.com.cn', timeout=15)
+            print(f'✅ Basic connectivity test successful (status: {response.status_code})')
+            print('MACOS_WORKS=true')
+        except Exception as e:
+            print(f'❌ macOS connectivity test failed: {e}')
+            print('MACOS_WORKS=false')
+            exit(1)
+        "
+
+  # Summary of results
+  connectivity-summary:
+    runs-on: ubuntu-latest
+    needs: [test-ubuntu, test-windows, test-macos]
+    if: always()
+    
+    steps:
+    - name: Connectivity Test Summary
+      run: |
+        echo "🔍 Network Connectivity Test Results:"
+        echo "====================================="
+        
+        if [ "${{ needs.test-ubuntu.result }}" == "success" ]; then
+          echo "✅ Ubuntu: SUCCESS - Can access qn.bjx.com.cn"
+        else
+          echo "❌ Ubuntu: FAILED - Cannot access qn.bjx.com.cn"
+        fi
+        
+        if [ "${{ needs.test-windows.result }}" == "success" ]; then
+          echo "✅ Windows: SUCCESS - Can access qn.bjx.com.cn"
+        else
+          echo "❌ Windows: FAILED - Cannot access qn.bjx.com.cn"
+        fi
+        
+        if [ "${{ needs.test-macos.result }}" == "success" ]; then
+          echo "✅ macOS: SUCCESS - Can access qn.bjx.com.cn"
+        else
+          echo "❌ macOS: FAILED - Cannot access qn.bjx.com.cn"
+        fi
+        
+        echo ""
+        echo "📋 Recommendations:"
+        
+        if [ "${{ needs.test-ubuntu.result }}" == "success" ]; then
+          echo "✅ Use Ubuntu runner for your main workflow"
+        elif [ "${{ needs.test-windows.result }}" == "success" ]; then
+          echo "✅ Use Windows runner for your main workflow"
+        elif [ "${{ needs.test-macos.result }}" == "success" ]; then
+          echo "✅ Use macOS runner for your main workflow"
+        else
+          echo "❌ All runners failed - consider:"
+          echo "   - Setting up a self-hosted runner"
+          echo "   - Using a proxy service"
+          echo "   - Contacting the website administrator"
+        fi

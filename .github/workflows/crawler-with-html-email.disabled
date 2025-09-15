@@ -37,6 +37,26 @@ jobs:
     - name: Install dependencies
       run: uv sync
       
+    - name: Test network connectivity
+      run: |
+        echo "🔍 Testing network connectivity to target website..."
+        python3 -c "
+        import socket
+        import requests
+        try:
+            print('Testing DNS resolution...')
+            socket.gethostbyname('qn.bjx.com.cn')
+            print('✅ DNS resolution successful')
+            
+            print('Testing basic connectivity...')
+            response = requests.get('https://qn.bjx.com.cn', timeout=15)
+            print(f'✅ Basic connectivity test successful (status: {response.status_code})')
+        except Exception as e:
+            print(f'❌ Connectivity test failed: {e}')
+            print('This might be a VPN/network issue in GitHub Actions.')
+            exit(1)
+        "
+      
     - name: Run crawler
       run: uv run crawl_bjx_qn_ci.py
       env:

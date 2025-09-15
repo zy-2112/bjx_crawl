@@ -32,14 +32,32 @@ logger = logging.getLogger(__name__)
 
 # Constants
 BASE_URL = 'https://qn.bjx.com.cn/zq'
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-}
+
+# Multiple User-Agent strings for rotation (helps bypass some blocking)
+USER_AGENTS = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+]
+
+def get_headers():
+    """Get headers with random User-Agent for better compatibility."""
+    import random
+    return {
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',  # Chinese language preference
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+    }
 
 CRAWL_STATE_FILE = 'crawl_state.json'
 
@@ -90,28 +108,68 @@ def is_article_newer_than_cutoff(article_date_str: str, cutoff_time: datetime) -
     
     return article_date > cutoff_time
 
-def fetch_html(url: str, timeout: int = 10, retries: int = 3) -> str:
+def fetch_html(url: str, timeout: int = 15, retries: int = 5) -> str:
     """
     Fetch HTML content from URL with retry logic and error handling.
+    Enhanced for GitHub Actions with longer timeouts and more retries.
     """
     session = requests.Session()
-    session.headers.update(HEADERS)
+    session.headers.update(get_headers())
+    
+    # Add connection pooling and keep-alive for better performance
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=1,
+        pool_maxsize=1,
+        max_retries=0  # We handle retries manually
+    )
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
     
     for attempt in range(retries):
         try:
-            logger.info(f"Fetching URL: {url} (attempt {attempt + 1})")
-            response = session.get(url, timeout=timeout)
+            logger.info(f"Fetching URL: {url} (attempt {attempt + 1}/{retries})")
+            
+            # Progressive timeout increase for GitHub Actions
+            current_timeout = timeout + (attempt * 5)
+            logger.debug(f"Using timeout: {current_timeout}s")
+            
+            response = session.get(url, timeout=current_timeout)
             response.raise_for_status()
             
             if len(response.text) < 100:
                 logger.warning(f"Response too short ({len(response.text)} chars), may be blocked")
+                if attempt < retries - 1:
+                    logger.info("Retrying due to short response...")
+                    time.sleep(3)
+                    continue
                 
+            logger.info(f"Successfully fetched {len(response.text)} characters")
             return response.text
             
+        except requests.exceptions.ConnectTimeout as e:
+            logger.warning(f"Attempt {attempt + 1} failed: Connection timeout - {e}")
+            if attempt < retries - 1:
+                wait_time = (2 ** attempt) + 5  # Longer wait for timeouts
+                logger.info(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+            else:
+                raise requests.RequestException(f"Connection timeout after {retries} attempts: {e}")
+                
+        except requests.exceptions.ReadTimeout as e:
+            logger.warning(f"Attempt {attempt + 1} failed: Read timeout - {e}")
+            if attempt < retries - 1:
+                wait_time = (2 ** attempt) + 3
+                logger.info(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+            else:
+                raise requests.RequestException(f"Read timeout after {retries} attempts: {e}")
+                
         except requests.exceptions.RequestException as e:
             logger.warning(f"Attempt {attempt + 1} failed: {e}")
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                wait_time = (2 ** attempt) + 2
+                logger.info(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
             else:
                 raise requests.RequestException(f"Failed to fetch {url} after {retries} attempts: {e}")
 

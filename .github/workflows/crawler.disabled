@@ -30,6 +30,9 @@ on:
 jobs:
   crawl:
     runs-on: ubuntu-latest
+    # Alternative runners to try if region issues persist:
+    # runs-on: windows-latest  # Different region/IP range
+    # runs-on: macos-latest    # Different region/IP range
     
     permissions:
       contents: write  # Required to commit and push changes
@@ -51,6 +54,46 @@ jobs:
     - name: Install dependencies
       run: uv sync
       
+    - name: Test network connectivity
+      run: |
+        echo "🔍 Testing network connectivity to target website..."
+        
+        # Try different DNS servers if needed
+        echo "Testing with different DNS servers..."
+        for dns in "8.8.8.8" "1.1.1.1" "208.67.222.222"; do
+          echo "Testing with DNS: $dns"
+          nslookup qn.bjx.com.cn $dns || echo "DNS $dns failed"
+        done
+        
+        python3 -c "
+        import socket
+        import requests
+        try:
+            print('Testing DNS resolution...')
+            socket.gethostbyname('qn.bjx.com.cn')
+            print('✅ DNS resolution successful')
+            
+            print('Testing basic connectivity...')
+            response = requests.get('https://qn.bjx.com.cn', timeout=15)
+            print(f'✅ Basic connectivity test successful (status: {response.status_code})')
+        except Exception as e:
+            print(f'❌ Connectivity test failed: {e}')
+            print('This might be a VPN/network issue in GitHub Actions.')
+            print('Trying alternative approaches...')
+            
+            # Try with different User-Agent
+            try:
+                import requests
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+                }
+                response = requests.get('https://qn.bjx.com.cn', timeout=15, headers=headers)
+                print(f'✅ Alternative User-Agent successful (status: {response.status_code})')
+            except Exception as e2:
+                print(f'❌ Alternative approach also failed: {e2}')
+                exit(1)
+        "
+      
     - name: Run incremental crawler
       run: uv run crawl_bjx_qn_incremental_ci.py
       env:
@@ -58,6 +101,10 @@ jobs:
         FORCE_FULL_CRAWL: ${{ github.event.inputs.force_full_crawl || 'false' }}
         OUTPUT_JSON: articles.json
         OUTPUT_CSV: articles.csv
+        # Uncomment and configure if you have a proxy available:
+        # HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
+        # HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
+        # NO_PROXY: localhost,127.0.0.1
       
     - name: Verify output files exist
       run: |
