@@ -54,15 +54,37 @@ jobs:
     - name: Run incremental crawler
       run: uv run crawl_bjx_qn_incremental_ci.py
       env:
-        MAX_PAGES: 5  # Reasonable limit for incremental crawling
+        MAX_PAGES: ${{ github.event.inputs.max_pages || '5' }}  # Reasonable limit for incremental crawling
         FORCE_FULL_CRAWL: ${{ github.event.inputs.force_full_crawl || 'false' }}
+        OUTPUT_JSON: articles.json
+        OUTPUT_CSV: articles.csv
       
+    - name: Verify output files exist
+      run: |
+        echo "Checking for output files..."
+        if [ ! -f articles.json ]; then
+          echo "❌ articles.json not found!"
+          ls -la
+          exit 1
+        fi
+        if [ ! -f articles.csv ]; then
+          echo "❌ articles.csv not found!"
+          ls -la
+          exit 1
+        fi
+        echo "✅ Output files verified"
+        echo "📊 Articles count: $(jq length articles.json)"
+        
     - name: Create timestamped directory
       run: |
         TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+        echo "Creating timestamped backup: data/$TIMESTAMP"
         mkdir -p "data/$TIMESTAMP"
+        
+        # Copy files to timestamped directory
         cp articles.json "data/$TIMESTAMP/articles.json"
         cp articles.csv "data/$TIMESTAMP/articles.csv"
+        cp crawl_state.json "data/$TIMESTAMP/crawl_state.json" 2>/dev/null || echo "No crawl_state.json to backup"
         
         # Keep latest files in root for easy access
         cp articles.json latest_articles.json
@@ -73,6 +95,7 @@ jobs:
         echo "" >> CRAWL_STATUS.md
         echo "**Last Updated:** $(date -u)" >> CRAWL_STATUS.md
         echo "**Articles Found:** $(jq length latest_articles.json)" >> CRAWL_STATUS.md
+        echo "** Timestamp:** $TIMESTAMP" >> CRAWL_STATUS.md
         echo "" >> CRAWL_STATUS.md
         echo "## Recent Articles" >> CRAWL_STATUS.md
         echo "" >> CRAWL_STATUS.md
@@ -96,15 +119,37 @@ jobs:
         
     - name: Prepare email content
       run: |
-        # Create email body with crawl summary
+        # Check if crawl state exists to determine crawl type
         ARTICLE_COUNT=$(jq length latest_articles.json)
         CRAWL_TIME=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
         
-        cat > email_body.txt << EOF
+        # Check for new articles indication from the crawler output
+        if grep -q "SUCCESS: No new articles found" <<< "$(cat /tmp/crawler_output.log 2>/dev/null || echo '')" || 
+           [ -f crawl_state.json ] && [ "$ARTICLE_COUNT" -eq "$(jq -r '.total_articles_crawled // 0' crawl_state.json 2>/dev/null || echo '0')" ]; then
+          # No new articles case
+          cat > email_body.txt << EOF
+        BJX QN Article Crawler Results - No New Articles
+        
+        Crawl completed successfully at: $CRAWL_TIME
+        Total articles in database: $ARTICLE_COUNT
+        New articles found: 0
+        
+        No new articles have been published since the last crawl.
+        The database remains current with existing articles.
+        
+        ---
+        Automated by GitHub Actions (Incremental Crawl)
+        Repository: ${{ github.repository }}
+        Run: ${{ github.run_number }}
+        EOF
+          echo "NO_NEW_ARTICLES=true" >> $GITHUB_ENV
+        else
+          # New articles found case
+          cat > email_body.txt << EOF
         BJX QN Article Crawler Results
         
         Crawl completed successfully at: $CRAWL_TIME
-        Total articles extracted: $ARTICLE_COUNT
+        Total articles in database: $ARTICLE_COUNT
         
         Latest Articles:
         $(jq -r '.[:5] | .[] | "• \(.title) (\(.date))"' latest_articles.json)
@@ -116,6 +161,8 @@ jobs:
         Repository: ${{ github.repository }}
         Run: ${{ github.run_number }}
         EOF
+          echo "NO_NEW_ARTICLES=false" >> $GITHUB_ENV
+        fi
         
     - name: Send email with CSV attachment
       if: success()
