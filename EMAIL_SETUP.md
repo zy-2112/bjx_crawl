@@ -15,47 +15,78 @@ This guide will help you set up automated email notifications for the BJX crawle
 3. **Create a new API key** with a descriptive name like "BJX Crawler"
 4. **Copy the API key** (it starts with `re_...`)
 
-## Step 2: Configure GitHub Secrets
+## Step 2: Configure Email Settings
 
-In your GitHub repository:
+You can configure email notifications in two ways:
 
-1. Go to **Settings** → **Secrets and variables** → **Actions**
-2. Click **New repository secret**
-3. Add these two secrets:
+### Option A: Vercel-Only Approach (Recommended)
+- Configure environment variables directly in Vercel:
+  - `RESEND_API_KEY` = your Resend API key
+  - `NOTIFICATION_EMAIL` = your email address
+- No GitHub secrets needed
+- Simpler setup with fewer services
 
-### Required Secrets:
+### Option B: GitHub Actions Approach
+- Configure GitHub Secrets in your repository:
+  1. Go to **Settings** → **Secrets and variables** → **Actions**
+  2. Click **New repository secret**
+  3. Add these two secrets:
 
-| Secret Name | Description | Example |
+### Required Settings:
+
+| Setting Name | Description | Example |
 |-------------|-------------|---------|
 | `RESEND_API_KEY` | Your Resend API key | `re_123abc...` |
-| `NOTIFICATION_EMAIL` | Your email address | `your-email@example.com` |
-
-### How to add secrets:
-```
-Name: RESEND_API_KEY
-Secret: re_your_actual_api_key_here
-
-Name: NOTIFICATION_EMAIL  
-Secret: your-email@example.com
-```
+| `NOTIFICATION_EMAIL` | Your email address | `your-email@example.com`
 
 ## Step 3: Choose Your Workflow
 
-You have two email workflow options:
+You have three workflow options:
 
-### Option 1: Basic Email (Recommended)
+### Option 1: Vercel-Only (Recommended)
+- File: Uses Vercel cron jobs (configured in `vercel.json`)
+- Features: Direct email notifications from Vercel function
+- Simplest architecture with no external dependencies
+
+### Option 2: Direct Crawling (Original)
 - File: `.github/workflows/crawler.yml`
 - Features: Plain text emails with CSV attachment
 - Simple and reliable
 
-### Option 2: Enhanced HTML Email  
+### Option 3: Vercel-Backed Crawling
+- File: `.github/workflows/crawler-vercel.yml`
+- Features: Calls Vercel function to bypass region blocks
+- Recommended if direct crawling fails due to IP blocking
+
+### Option 4: Enhanced HTML Email  
 - File: `.github/workflows/crawler-with-html-email.yml`
 - Features: Beautiful HTML emails with styled previews
 - More visual appeal
 
 **To switch between workflows:**
-1. Rename the workflow file you DON'T want to use (add `.disabled` extension)
-2. Keep only one active workflow file
+1. For Vercel-Only: Just deploy and configure environment variables
+2. For GitHub Actions: Rename the workflow file you DON'T want to use (add `.disabled` extension)
+3. Keep only one active workflow file
+
+## Step 4: Configure Vercel Integration (Vercel-Backed Workflow)
+
+If using the Vercel-backed workflow:
+
+1. **Deploy the crawler to Vercel** as a serverless function
+2. **Update the VERCEL_URL** in `.github/workflows/crawler-vercel.yml`:
+   ```yaml
+   VERCEL_URL="https://your-vercel-app.vercel.app/api/crawl"
+   ```
+3. **Test the Vercel function** manually before enabling the workflow
+
+## Step 5: Test the Setup
+
+### Manual Test:
+1. For Vercel-Only: Call your Vercel function endpoint directly
+2. For GitHub Actions: Go to your repository's **Actions** tab
+3. Select the crawler workflow
+4. Click **Run workflow** → **Run workflow**
+5. Check your email for the notification
 
 ## Step 4: Test the Setup
 

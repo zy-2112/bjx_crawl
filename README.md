@@ -94,6 +94,22 @@ The project includes GitHub Actions workflows for automated crawling:
   - Maintains `latest_articles.json`, `latest_articles.csv`, and `CRAWL_STATUS.md`
   - Uploads artifacts for each run
 
+### Vercel-Only Approach (Recommended)
+- **Schedule**: Uses Vercel cron jobs (configured in `vercel.json`)
+- **Features**:
+  - Calls Vercel serverless function to bypass region blocks
+  - Sends email notifications directly from Vercel
+  - No need for GitHub Actions coordination
+  - Simplified architecture with fewer moving parts
+
+### Vercel-Backed Workflow (`.github/workflows/crawler-vercel.yml`)
+- **Schedule**: Runs twice daily at 9:00 AM and 9:00 PM UTC
+- **Features**:
+  - Calls Vercel serverless function to bypass region blocks
+  - Sends email notifications with CSV attachments
+  - Maintains data backups and commit history
+  - Handles both success and failure scenarios
+
 ### Weekly Analysis Workflow (`.github/workflows/analysis.yml`)
 - **Schedule**: Runs weekly on Sundays at 10:00 AM UTC
 - **Features**: Analyzes historical data and generates `WEEKLY_ANALYSIS.md`
@@ -110,12 +126,36 @@ The project includes GitHub Actions workflows for automated crawling:
 
 ### Setup Instructions
 
-1. **Fork/Clone** the repository to your GitHub account
-2. **Enable Actions**: Go to the "Actions" tab and enable GitHub Actions
-3. **Set Permissions**: Ensure the repository has write permissions for Actions:
+1. **Deploy to Vercel**: Deploy the crawler as a Vercel serverless function
+2. **Configure Email Secrets**: Set up Resend API key and notification email as Vercel environment variables:
+   - `RESEND_API_KEY` - Your Resend API key
+   - `NOTIFICATION_EMAIL` - Your email address
+3. **Fork/Clone** the repository to your GitHub account (optional for Vercel-only approach)
+4. **Enable Actions**: Go to the "Actions" tab and enable GitHub Actions (only if using GitHub Actions workflows)
+5. **Set Permissions**: Ensure the repository has write permissions for Actions (only if using GitHub Actions):
    - Go to Settings → Actions → General
    - Set "Workflow permissions" to "Read and write permissions"
-4. **Manual Trigger**: You can manually trigger workflows from the Actions tab
+6. **Manual Trigger**: You can manually trigger workflows from the Actions tab (only if using GitHub Actions)
+
+### Vercel-Only Setup (Recommended)
+
+For the simplest approach using only Vercel:
+
+1. **Deploy to Vercel**:
+   - Push your code to a Git repository
+   - Connect to Vercel and deploy
+   - The cron job is already configured in `vercel.json`
+
+2. **Configure Environment Variables**:
+   - In Vercel dashboard, go to your project settings
+   - Add these environment variables:
+     - `RESEND_API_KEY` = your Resend API key
+     - `NOTIFICATION_EMAIL` = your email address
+
+3. **That's it!**:
+   - The Vercel function will run automatically twice daily
+   - You'll receive email notifications with results
+   - No GitHub Actions needed
 
 ### Customization
 
