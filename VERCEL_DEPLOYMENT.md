@@ -29,7 +29,7 @@ This guide will help you deploy the BJX QN crawler to Vercel as a serverless fun
 
 The `vercel.json` file is already configured with:
 - **Function timeout**: 5 minutes (300 seconds)
-- **Cron schedule**: Runs twice daily at 9:00 AM and 9:00 PM UTC
+- **Cron schedule**: Runs once daily at 9:00 AM UTC
 - **CORS headers**: Enabled for web access
 
 ### 3. Deploy
@@ -73,9 +73,8 @@ GET /api/crawl?max_pages=3&force_full_crawl=false
 
 ### Scheduled Crawling
 
-The crawler runs automatically twice daily:
-- **9:00 AM UTC** - Morning crawl
-- **9:00 PM UTC** - Evening crawl
+The crawler runs automatically once daily:
+- **9:00 AM UTC** - Daily crawl
 
 ## Monitoring
 
@@ -127,7 +126,7 @@ Modify `vercel.json` to change schedule:
   "crons": [
     {
       "path": "/api/crawl",
-      "schedule": "0 9,21 * * *"  // 9 AM and 9 PM UTC daily
+      "schedule": "0 9 * * *"  // 9 AM UTC daily
     }
   ]
 }
@@ -147,5 +146,17 @@ Modify `vercel.json` to change schedule:
 2. **Test the web interface** with a small crawl
 3. **Monitor the cron jobs** for automatic runs
 4. **Set up notifications** if needed (can be added to the function)
+
+## Vercel Free Tier Limitations
+
+- **Cron jobs**: Only once per day (daily at 9 AM UTC)
+- **Function timeout**: 10 seconds for hobby plan, 5 minutes for pro plan
+- **Function executions**: 100GB-hours per month
+- **Bandwidth**: 100GB per month
+
+For more frequent crawling, consider:
+- **Manual triggers** via web interface
+- **External cron service** calling your API
+- **Vercel Pro plan** for more frequent cron jobs
 
 The Vercel solution should work much better than GitHub Actions for this use case! 🚀

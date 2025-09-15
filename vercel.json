@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/crawl.js": {
+    "api/crawl.py": {
       "maxDuration": 300
     }
   },
