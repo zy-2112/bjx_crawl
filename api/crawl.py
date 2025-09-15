@@ -35,12 +35,14 @@ class handler(BaseHTTPRequestHandler):
             # Add attachment if CSV data is provided
             if csv_data:
                 import base64
-                # For simplicity, we'll include the CSV as part of the text content
-                # In a production environment, you might want to use Resend's attachment feature
-                email_data["text"] += f"""
-
-[CSV Data]
-{csv_data}"""
+                # Encode CSV data as base64 for attachment
+                csv_base64 = base64.b64encode(csv_data.encode('utf-8')).decode('utf-8')
+                email_data["attachments"] = [
+                    {
+                        "filename": "articles.csv",
+                        "content": csv_base64
+                    }
+                ]
             
             # Send email via Resend API
             headers = {
