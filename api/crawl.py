@@ -39,6 +39,28 @@ class handler(BaseHTTPRequestHandler):
                 'OUTPUT_CSV': 'articles.csv'
             })
             
+            # Debug information
+            debug_info = {
+                'cwd': os.getcwd(),
+                'script_path': 'crawl_bjx_qn_incremental_ci.py',
+                'full_script_path': os.path.join(os.getcwd(), 'crawl_bjx_qn_incremental_ci.py'),
+                'script_exists': os.path.exists('crawl_bjx_qn_incremental_ci.py'),
+                'files_in_dir': list(os.listdir('.')) if os.path.exists('.') else 'Directory not accessible',
+                'python_executable': sys.executable,
+                'max_pages': max_pages,
+                'force_full_crawl': force_full_crawl
+            }
+            
+            # Check if the crawler script exists
+            if not os.path.exists('crawl_bjx_qn_incremental_ci.py'):
+                response = {
+                    'success': False,
+                    'error': 'Crawler script not found',
+                    'details': debug_info
+                }
+                self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
+                return
+            
             # Run the crawler
             try:
                 result = subprocess.run(
@@ -49,13 +71,17 @@ class handler(BaseHTTPRequestHandler):
                     timeout=300  # 5 minute timeout
                 )
                 
+                # Enhanced error reporting
                 if result.returncode != 0:
                     response = {
                         'success': False,
                         'error': 'Crawler failed',
-                        'output': result.stdout,
-                        'errorOutput': result.stderr,
-                        'exitCode': result.returncode
+                        'details': {
+                            'exitCode': result.returncode,
+                            'stdout': result.stdout,
+                            'stderr': result.stderr,
+                            'debug_info': debug_info
+                        }
                     }
                 else:
                     # Check if output files exist
@@ -63,7 +89,11 @@ class handler(BaseHTTPRequestHandler):
                         response = {
                             'success': False,
                             'error': 'Output files not created',
-                            'output': result.stdout
+                            'details': {
+                                'stdout': result.stdout,
+                                'stderr': result.stderr,
+                                'debug_info': debug_info
+                            }
                         }
                     else:
                         # Read the results
@@ -79,7 +109,11 @@ class handler(BaseHTTPRequestHandler):
                             'articlesCount': len(articles),
                             'articles': articles[:10],  # Return first 10 articles as preview
                             'csvData': csv_data,
-                            'output': result.stdout,
+                            'details': {
+                                'stdout': result.stdout,
+                                'stderr': result.stderr,
+                                'debug_info': debug_info
+                            },
                             'timestamp': datetime.now().isoformat()
                         }
                 
@@ -87,13 +121,21 @@ class handler(BaseHTTPRequestHandler):
                 response = {
                     'success': False,
                     'error': 'Crawler timed out after 5 minutes',
-                    'output': 'Process was terminated due to timeout'
+                    'details': {
+                        'stdout': 'Process was terminated due to timeout',
+                        'stderr': 'Timeout occurred during crawling',
+                        'debug_info': debug_info
+                    }
                 }
             except Exception as e:
                 response = {
                     'success': False,
                     'error': f'Failed to run crawler: {str(e)}',
-                    'output': ''
+                    'details': {
+                        'exception_type': type(e).__name__,
+                        'exception_message': str(e),
+                        'debug_info': debug_info
+                    }
                 }
             
             # Send response
@@ -102,7 +144,11 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
             error_response = {
                 'success': False,
-                'error': str(e),
+                'error': f'Server error: {str(e)}',
+                'details': {
+                    'exception_type': type(e).__name__,
+                    'exception_message': str(e)
+                },
                 'timestamp': datetime.now().isoformat()
             }
             self.wfile.write(json.dumps(error_response).encode('utf-8'))
