@@ -45,6 +45,12 @@ def main():
         is_first_run = state.get('first_run', True) or force_full_crawl
         last_crawl_time = state.get('last_crawl_time')
         
+        # Check if existing articles file exists - if not, treat as first run
+        # This handles the case where articles.json is gitignored in GitHub Actions
+        if not os.path.exists(output_json):
+            logger.info("No existing articles file found, treating as first run")
+            is_first_run = True
+        
         # Determine cutoff time for incremental crawling
         cutoff_time = None
         if not is_first_run and last_crawl_time and not force_full_crawl:
@@ -75,6 +81,15 @@ def main():
                 sys.exit(1)
             else:
                 logger.info("No new articles found since last crawl")
+                # Load existing articles to ensure we have something to output
+                existing_articles = load_existing_articles()
+                if existing_articles:
+                    final_articles = existing_articles
+                    logger.info(f"Using existing articles: {len(final_articles)} articles")
+                else:
+                    logger.warning("No existing articles found and no new articles - creating empty files")
+                    final_articles = []
+                
                 # Update state even if no new articles
                 state.update({
                     'last_crawl_time': datetime.now(timezone.utc).isoformat(),
@@ -82,9 +97,13 @@ def main():
                 })
                 save_crawl_state(state)
                 
+                # Always create output files, even if empty
+                save_to_json(final_articles, output_json)
+                save_to_csv(final_articles, output_csv)
+                
                 # For CI, we still want to output success but indicate no new content
                 print("SUCCESS: No new articles found")
-                print(f"Files: {output_json}, {output_csv} (unchanged)")
+                print(f"Files: {output_json}, {output_csv} (existing/empty)")
                 print(f"Last crawl: {last_crawl_time}")
                 sys.exit(0)
         
