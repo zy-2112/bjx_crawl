@@ -1,0 +1,158 @@
+name: BJX QN Article Crawler
+
+on:
+  # Run twice daily at 9:00 AM and 9:00 PM UTC (adjust timezone as needed)
+  schedule:
+    - cron: '0 9 * * *'   # 9:00 AM UTC daily
+    - cron: '0 21 * * *'  # 9:00 PM UTC daily
+  
+  # Allow manual trigger with options
+  workflow_dispatch:
+    inputs:
+      force_full_crawl:
+        description: 'Force full crawl (ignore incremental state)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      max_pages:
+        description: 'Maximum pages to crawl'
+        required: false
+        default: '5'
+        type: string
+  
+  # Run on push to main branch (for testing)
+  push:
+    branches: [ main ]
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required to commit and push changes
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Run incremental crawler
+      run: uv run crawl_bjx_qn_incremental_ci.py
+      env:
+        MAX_PAGES: 5  # Reasonable limit for incremental crawling
+        FORCE_FULL_CRAWL: ${{ github.event.inputs.force_full_crawl || 'false' }}
+      
+    - name: Create timestamped directory
+      run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+        mkdir -p "data/$TIMESTAMP"
+        cp articles.json "data/$TIMESTAMP/articles.json"
+        cp articles.csv "data/$TIMESTAMP/articles.csv"
+        
+        # Keep latest files in root for easy access
+        cp articles.json latest_articles.json
+        cp articles.csv latest_articles.csv
+        
+        # Create a simple index
+        echo "# Latest Crawl Results" > CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "**Last Updated:** $(date -u)" >> CRAWL_STATUS.md
+        echo "**Articles Found:** $(jq length latest_articles.json)" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "## Recent Articles" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        jq -r '.[:5] | .[] | "- [\(.title)](\(.url)) - \(.date)"' latest_articles.json >> CRAWL_STATUS.md
+        
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        
+        # Check if there are any changes
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update articles data - $(date -u)"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Prepare email content
+      run: |
+        # Create email body with crawl summary
+        ARTICLE_COUNT=$(jq length latest_articles.json)
+        CRAWL_TIME=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+        
+        cat > email_body.txt << EOF
+        BJX QN Article Crawler Results
+        
+        Crawl completed successfully at: $CRAWL_TIME
+        Total articles extracted: $ARTICLE_COUNT
+        
+        Latest Articles:
+        $(jq -r '.[:5] | .[] | "• \(.title) (\(.date))"' latest_articles.json)
+        
+        Please find the complete data attached as CSV file.
+        
+        ---
+        Automated by GitHub Actions
+        Repository: ${{ github.repository }}
+        Run: ${{ github.run_number }}
+        EOF
+        
+    - name: Send email with CSV attachment
+      if: success()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "BJX QN Articles - $(date -u +%Y-%m-%d) - $(jq length latest_articles.json) articles"
+        text-file: email_body.txt
+        attachments: latest_articles.csv
+        
+    - name: Send error notification
+      if: failure()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "BJX QN Crawler Failed - $(date -u +%Y-%m-%d)"
+        text: |
+          The BJX QN article crawler failed during execution.
+          
+          Repository: ${{ github.repository }}
+          Run: ${{ github.run_number }}
+          Workflow: ${{ github.workflow }}
+          
+          Please check the GitHub Actions logs for details:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: crawler-results-${{ github.run_number }}
+        path: |
+          latest_articles.json
+          latest_articles.csv
+          CRAWL_STATUS.md
+          email_body.txt
+        retention-days: 30

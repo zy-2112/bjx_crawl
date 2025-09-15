@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Crawler output files (local development)
+# Keep these out of git for local runs, GitHub Actions will manage them
+articles.json
+articles.csv
+
+# Test files
+test_*.html
+test_*.txt
+test_*.csv
+bjx_articles_*.csv
+TEST_STATUS.md
+
+# But track the latest files created by GitHub Actions
+!latest_articles.json
+!latest_articles.csv
+!CRAWL_STATUS.md
+!crawl_state.json

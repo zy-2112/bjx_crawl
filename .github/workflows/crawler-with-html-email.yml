@@ -1,0 +1,207 @@
+name: BJX QN Article Crawler (Enhanced Email)
+
+on:
+  # Run twice daily at 9:00 AM and 9:00 PM UTC (adjust timezone as needed)
+  schedule:
+    - cron: '0 9 * * *'   # 9:00 AM UTC daily
+    - cron: '0 21 * * *'  # 9:00 PM UTC daily
+  
+  # Allow manual trigger
+  workflow_dispatch:
+  
+  # Run on push to main branch (for testing)
+  push:
+    branches: [ main ]
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required to commit and push changes
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Run crawler
+      run: uv run crawl_bjx_qn_ci.py
+      env:
+        MAX_PAGES: 3  # Limit pages for faster CI runs
+      
+    - name: Create timestamped directory
+      run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+        mkdir -p "data/$TIMESTAMP"
+        cp articles.json "data/$TIMESTAMP/articles.json"
+        cp articles.csv "data/$TIMESTAMP/articles.csv"
+        
+        # Keep latest files in root for easy access
+        cp articles.json latest_articles.json
+        cp articles.csv latest_articles.csv
+        
+        # Create a simple index
+        echo "# Latest Crawl Results" > CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "**Last Updated:** $(date -u)" >> CRAWL_STATUS.md
+        echo "**Articles Found:** $(jq length latest_articles.json)" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "## Recent Articles" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        jq -r '.[:5] | .[] | "- [\(.title)](\(.url)) - \(.date)"' latest_articles.json >> CRAWL_STATUS.md
+        
+    - name: Create enhanced email content
+      run: |
+        ARTICLE_COUNT=$(jq length latest_articles.json)
+        CRAWL_TIME=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+        TIMESTAMP=$(date -u +"%Y%m%d_%H%M")
+        
+        # Create HTML email
+        cat > email_body.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .header { background-color: #f4f4f4; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                .stats { background-color: #e9f7ef; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                .articles { margin: 20px 0; }
+                .article-item { margin: 10px 0; padding: 10px; border-left: 3px solid #007bff; }
+                .footer { font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px; margin-top: 30px; }
+                a { color: #007bff; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>🔋 BJX QN Article Crawler Results</h2>
+                <p><strong>Crawl Time:</strong> $CRAWL_TIME</p>
+                <p><strong>Repository:</strong> ${{ github.repository }}</p>
+            </div>
+            
+            <div class="stats">
+                <h3>📊 Crawl Summary</h3>
+                <ul>
+                    <li><strong>Total Articles:</strong> $ARTICLE_COUNT</li>
+                    <li><strong>Run Number:</strong> #${{ github.run_number }}</li>
+                    <li><strong>Status:</strong> ✅ Success</li>
+                </ul>
+            </div>
+            
+            <div class="articles">
+                <h3>🔍 Latest Articles Preview</h3>
+        EOF
+        
+        # Add article previews to HTML
+        jq -r '.[:8] | .[] | "<div class=\"article-item\"><strong><a href=\"\(.url)\">\(.title)</a></strong><br><small>📅 \(.date)</small></div>"' latest_articles.json >> email_body.html
+        
+        cat >> email_body.html << EOF
+            </div>
+            
+            <div class="footer">
+                <p>📎 Complete data is attached as CSV file: <code>bjx_articles_$TIMESTAMP.csv</code></p>
+                <p>🤖 Generated automatically by GitHub Actions</p>
+                <p>🔗 <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View workflow run</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Create plain text version
+        cat > email_body.txt << EOF
+        BJX QN Article Crawler Results
+        
+        Crawl completed successfully at: $CRAWL_TIME
+        Total articles extracted: $ARTICLE_COUNT
+        Repository: ${{ github.repository }}
+        Run: #${{ github.run_number }}
+        
+        Latest Articles:
+        $(jq -r '.[:8] | .[] | "• \(.title) (\(.date))\n  \(.url)"' latest_articles.json)
+        
+        📎 Complete data is attached as CSV file.
+        
+        ---
+        🤖 Automated by GitHub Actions
+        🔗 View run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        EOF
+        
+        # Rename CSV with timestamp for attachment
+        cp latest_articles.csv "bjx_articles_$TIMESTAMP.csv"
+        
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        
+        # Check if there are any changes
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update articles data - $(date -u)"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Send enhanced email notification
+      if: success()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "📰 BJX Articles Update - $(date -u +%Y-%m-%d %H:%M) UTC - $(jq length latest_articles.json) articles"
+        html-file: email_body.html
+        text-file: email_body.txt
+        attachments: bjx_articles_$(date -u +%Y%m%d_%H%M).csv
+        
+    - name: Send error notification
+      if: failure()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "❌ BJX QN Crawler Failed - $(date -u +%Y-%m-%d)"
+        text: |
+          The BJX QN article crawler failed during execution.
+          
+          ⚠️  Error Details:
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          Run: #${{ github.run_number }}
+          Triggered by: ${{ github.event_name }}
+          
+          🔗 Check the logs for details:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          🤖 This is an automated notification from GitHub Actions.
+          
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: crawler-results-${{ github.run_number }}
+        path: |
+          latest_articles.json
+          latest_articles.csv
+          CRAWL_STATUS.md
+          email_body.html
+          email_body.txt
+          bjx_articles_*.csv
+        retention-days: 30

@@ -1,0 +1,113 @@
+name: Weekly Data Analysis
+
+on:
+  # Run weekly on Sundays at 10:00 AM UTC
+  schedule:
+    - cron: '0 10 * * 0'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required to commit and push changes
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for analysis
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies and analysis tools
+      run: |
+        uv sync
+        uv add pandas matplotlib seaborn
+        
+    - name: Run data analysis
+      run: |
+        python3 -c "
+        import os
+        import json
+        import pandas as pd
+        from collections import Counter
+        from datetime import datetime, timedelta
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        
+        # Collect all data files
+        all_articles = []
+        data_dir = 'data'
+        if os.path.exists(data_dir):
+            for subdir in os.listdir(data_dir):
+                json_file = os.path.join(data_dir, subdir, 'articles.json')
+                if os.path.exists(json_file):
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        articles = json.load(f)
+                        for article in articles:
+                            article['crawl_time'] = subdir
+                        all_articles.extend(articles)
+        
+        if all_articles:
+            df = pd.DataFrame(all_articles)
+            
+            # Generate analysis
+            report = []
+            report.append('# Weekly Data Analysis Report\\n')
+            report.append(f'**Generated:** {datetime.utcnow().strftime(\"%Y-%m-%d %H:%M:%S\")} UTC\\n')
+            report.append(f'**Total Articles Analyzed:** {len(df)}\\n')
+            
+            # Date distribution
+            if 'date' in df.columns:
+                date_counts = df['date'].value_counts().head(10)
+                report.append('## Top Publication Dates\\n')
+                for date, count in date_counts.items():
+                    report.append(f'- {date}: {count} articles')
+                report.append('')
+            
+            # Most common keywords in titles
+            all_titles = ' '.join(df['title'].astype(str))
+            keywords = ['氢能', '制氢', '绿氢', '电解', '项目', '投资', '产业', '技术', '能源', '公司']
+            keyword_counts = {kw: all_titles.count(kw) for kw in keywords}
+            sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            report.append('## Keyword Frequency in Titles\\n')
+            for kw, count in sorted_keywords[:10]:
+                report.append(f'- {kw}: {count} mentions')
+            report.append('')
+            
+            # Save report
+            with open('WEEKLY_ANALYSIS.md', 'w', encoding='utf-8') as f:
+                f.write('\\n'.join(report))
+            
+            print(f'Analysis complete. Analyzed {len(df)} articles.')
+        else:
+            print('No data available for analysis.')
+        "
+        
+    - name: Commit analysis report
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add WEEKLY_ANALYSIS.md
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Weekly analysis report - $(date -u +%Y-%m-%d)"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
