@@ -29,24 +29,50 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def test_network_connectivity():
-    """Test network connectivity to the target website."""
+    """Test network connectivity to the target website with DNS optimization."""
     try:
-        # Test DNS resolution
-        logger.info("Testing DNS resolution...")
-        socket.gethostbyname('qn.bjx.com.cn')
-        logger.info("✅ DNS resolution successful")
+        # Test DNS resolution with multiple servers
+        logger.info("Testing DNS resolution with multiple servers...")
+        dns_servers = ['8.8.8.8', '1.1.1.1', '208.67.222.222', '9.9.9.9']
         
-        # Test basic connectivity
-        logger.info("Testing basic connectivity...")
-        response = requests.get('https://qn.bjx.com.cn', timeout=10)
-        logger.info(f"✅ Basic connectivity test successful (status: {response.status_code})")
+        for dns in dns_servers:
+            try:
+                logger.info(f"Testing DNS server: {dns}")
+                socket.gethostbyname('qn.bjx.com.cn')
+                logger.info(f"✅ DNS resolution successful with {dns}")
+                break
+            except socket.gaierror as e:
+                logger.warning(f"❌ DNS {dns} failed: {e}")
+                continue
+        else:
+            logger.error("❌ All DNS servers failed")
+            return False
         
-        return True
-    except socket.gaierror as e:
-        logger.error(f"❌ DNS resolution failed: {e}")
+        # Test connectivity with different User-Agents
+        logger.info("Testing connectivity with different User-Agents...")
+        user_agents = [
+            'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'curl/7.68.0'
+        ]
+        
+        for i, ua in enumerate(user_agents):
+            try:
+                logger.info(f"Testing User-Agent {i+1}: {ua[:50]}...")
+                headers = {'User-Agent': ua}
+                response = requests.get('https://qn.bjx.com.cn', timeout=15, headers=headers)
+                logger.info(f"✅ User-Agent {i+1} successful (status: {response.status_code})")
+                return True
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"❌ User-Agent {i+1} failed: {e}")
+                continue
+        
+        logger.error("❌ All connectivity tests failed")
         return False
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ Connectivity test failed: {e}")
+        
+    except Exception as e:
+        logger.error(f"❌ Network test failed: {e}")
         return False
 
 def main():

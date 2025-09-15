@@ -111,7 +111,7 @@ def is_article_newer_than_cutoff(article_date_str: str, cutoff_time: datetime) -
 def fetch_html(url: str, timeout: int = 15, retries: int = 5) -> str:
     """
     Fetch HTML content from URL with retry logic and error handling.
-    Enhanced for GitHub Actions with longer timeouts and more retries.
+    Enhanced for GitHub Actions with DNS optimization and longer timeouts.
     """
     session = requests.Session()
     session.headers.update(get_headers())
@@ -124,6 +124,21 @@ def fetch_html(url: str, timeout: int = 15, retries: int = 5) -> str:
     )
     session.mount('http://', adapter)
     session.mount('https://', adapter)
+    
+    # DNS optimization - ensure domain resolution works
+    try:
+        import socket
+        ip = socket.gethostbyname('qn.bjx.com.cn')
+        logger.debug(f"Resolved IP: {ip}")
+    except Exception as e:
+        logger.warning(f"DNS resolution failed: {e}")
+        # Try alternative DNS servers
+        for dns in ['8.8.8.8', '1.1.1.1', '208.67.222.222']:
+            try:
+                # This is just for logging, actual resolution happens in the request
+                logger.debug(f"Testing DNS server: {dns}")
+            except:
+                pass
     
     for attempt in range(retries):
         try:

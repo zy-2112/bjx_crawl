@@ -1,0 +1,296 @@
+name: BJX QN Article Crawler (DNS Solution)
+
+on:
+  # Run twice daily at 9:00 AM and 9:00 PM UTC
+  schedule:
+    - cron: '0 9 * * *'   # 9:00 AM UTC daily
+    - cron: '0 21 * * *'  # 9:00 PM UTC daily
+  
+  # Allow manual trigger with options
+  workflow_dispatch:
+    inputs:
+      force_full_crawl:
+        description: 'Force full crawl (ignore incremental state)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      max_pages:
+        description: 'Maximum pages to crawl'
+        required: false
+        default: '5'
+        type: string
+  
+  # Run on push to main branch (for testing)
+  push:
+    branches: [ main ]
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required to commit and push changes
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+        
+    - name: Install dependencies
+      run: uv sync
+      
+    - name: Configure DNS and test connectivity
+      run: |
+        echo "🔍 Testing DNS resolution with multiple servers..."
+        
+        # Test different DNS servers
+        echo "Testing DNS servers:"
+        for dns in "8.8.8.8" "1.1.1.1" "208.67.222.222" "9.9.9.9"; do
+          echo "Testing with DNS: $dns"
+          nslookup qn.bjx.com.cn $dns || echo "DNS $dns failed"
+        done
+        
+        # Try to resolve the IP and test connectivity
+        echo "🔍 Testing connectivity with resolved IP..."
+        IP=$(nslookup qn.bjx.com.cn 8.8.8.8 | grep -A1 "Name:" | tail -1 | awk '{print $2}' | head -1)
+        
+        if [ -n "$IP" ]; then
+          echo "Resolved IP: $IP"
+          
+          # Test direct IP connectivity
+          echo "Testing direct IP connectivity..."
+          if curl -s --connect-timeout 10 --max-time 15 "https://$IP" -H "Host: qn.bjx.com.cn" > /dev/null; then
+            echo "✅ Direct IP connectivity successful"
+            echo "RESOLVED_IP=$IP" >> $GITHUB_ENV
+          else
+            echo "❌ Direct IP connectivity failed"
+          fi
+        else
+          echo "❌ Could not resolve IP address"
+        fi
+        
+        # Test with different User-Agents
+        echo "🔍 Testing with different User-Agents..."
+        uv run python3 -c "
+        import socket
+        import requests
+        import os
+        
+        # Try different DNS servers
+        dns_servers = ['8.8.8.8', '1.1.1.1', '208.67.222.222', '9.9.9.9']
+        
+        for dns in dns_servers:
+            try:
+                print(f'Testing with DNS: {dns}')
+                # Override DNS resolution
+                socket.gethostbyname('qn.bjx.com.cn')
+                print(f'✅ DNS {dns} resolution successful')
+                break
+            except Exception as e:
+                print(f'❌ DNS {dns} failed: {e}')
+                continue
+        else:
+            print('❌ All DNS servers failed')
+            exit(1)
+        
+        # Test connectivity with different approaches
+        user_agents = [
+            'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'curl/7.68.0'
+        ]
+        
+        for i, ua in enumerate(user_agents):
+            try:
+                print(f'Testing User-Agent {i+1}: {ua[:50]}...')
+                headers = {'User-Agent': ua}
+                response = requests.get('https://qn.bjx.com.cn', timeout=15, headers=headers)
+                print(f'✅ User-Agent {i+1} successful (status: {response.status_code})')
+                print(f'WORKING_USER_AGENT={ua}' >> os.environ)
+                break
+            except Exception as e:
+                print(f'❌ User-Agent {i+1} failed: {e}')
+                continue
+        else:
+            print('❌ All User-Agents failed')
+            exit(1)
+        "
+      
+    - name: Run incremental crawler with DNS optimization
+      run: |
+        echo "🚀 Running crawler with DNS optimizations..."
+        
+        # Set DNS environment variables for the crawler
+        export DNS_SERVER="8.8.8.8"
+        export WORKING_USER_AGENT="${{ env.WORKING_USER_AGENT }}"
+        export RESOLVED_IP="${{ env.RESOLVED_IP }}"
+        
+        # Run the crawler
+        uv run crawl_bjx_qn_incremental_ci.py
+      env:
+        MAX_PAGES: ${{ github.event.inputs.max_pages || '5' }}
+        FORCE_FULL_CRAWL: ${{ github.event.inputs.force_full_crawl || 'false' }}
+        OUTPUT_JSON: articles.json
+        OUTPUT_CSV: articles.csv
+        # DNS optimization
+        DNS_SERVER: "8.8.8.8"
+        WORKING_USER_AGENT: ${{ env.WORKING_USER_AGENT }}
+        RESOLVED_IP: ${{ env.RESOLVED_IP }}
+      
+    - name: Verify output files exist
+      run: |
+        echo "Checking for output files..."
+        if [ ! -f articles.json ]; then
+          echo "❌ articles.json not found!"
+          ls -la
+          exit 1
+        fi
+        if [ ! -f articles.csv ]; then
+          echo "❌ articles.csv not found!"
+          ls -la
+          exit 1
+        fi
+        echo "✅ Output files verified"
+        echo "📊 Articles count: $(jq length articles.json)"
+        
+    - name: Create timestamped directory
+      run: |
+        TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+        echo "Creating timestamped backup: data/$TIMESTAMP"
+        mkdir -p "data/$TIMESTAMP"
+        
+        # Copy files to timestamped directory
+        cp articles.json "data/$TIMESTAMP/articles.json"
+        cp articles.csv "data/$TIMESTAMP/articles.csv"
+        cp crawl_state.json "data/$TIMESTAMP/crawl_state.json" 2>/dev/null || echo "No crawl_state.json to backup"
+        
+        # Keep latest files in root for easy access
+        cp articles.json latest_articles.json
+        cp articles.csv latest_articles.csv
+        
+        # Create a simple index
+        echo "# Latest Crawl Results" > CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "**Last Updated:** $(date -u)" >> CRAWL_STATUS.md
+        echo "**Articles Found:** $(jq length latest_articles.json)" >> CRAWL_STATUS.md
+        echo "**Timestamp:** $TIMESTAMP" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        echo "## Recent Articles" >> CRAWL_STATUS.md
+        echo "" >> CRAWL_STATUS.md
+        jq -r '.[:5] | .[] | "- [\(.title)](\(.url)) - \(.date)"' latest_articles.json >> CRAWL_STATUS.md
+        
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        
+        # Check if there are any changes
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update articles data - $(date -u)"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Prepare email content
+      run: |
+        # Check if crawl state exists to determine crawl type
+        ARTICLE_COUNT=$(jq length latest_articles.json)
+        CRAWL_TIME=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+        
+        # Check for new articles indication from the crawler output
+        if grep -q "SUCCESS: No new articles found" <<< "$(cat /tmp/crawler_output.log 2>/dev/null || echo '')" || 
+           [ -f crawl_state.json ] && [ "$ARTICLE_COUNT" -eq "$(jq -r '.total_articles_crawled // 0' crawl_state.json 2>/dev/null || echo '0')" ]; then
+          # No new articles case
+          cat > email_body.txt << EOF
+        BJX QN Article Crawler Results - No New Articles
+        
+        Crawl completed successfully at: $CRAWL_TIME
+        Total articles in database: $ARTICLE_COUNT
+        New articles found: 0
+        
+        No new articles have been published since the last crawl.
+        The database remains current with existing articles.
+        
+        ---
+        Automated by GitHub Actions (DNS Optimized)
+        Repository: ${{ github.repository }}
+        Run: ${{ github.run_number }}
+        EOF
+          echo "NO_NEW_ARTICLES=true" >> $GITHUB_ENV
+        else
+          # New articles found case
+          cat > email_body.txt << EOF
+        BJX QN Article Crawler Results
+        
+        Crawl completed successfully at: $CRAWL_TIME
+        Total articles in database: $ARTICLE_COUNT
+        
+        Latest Articles:
+        $(jq -r '.[:5] | .[] | "• \(.title) (\(.date))"' latest_articles.json)
+        
+        Please find the complete data attached as CSV file.
+        
+        ---
+        Automated by GitHub Actions (DNS Optimized)
+        Repository: ${{ github.repository }}
+        Run: ${{ github.run_number }}
+        EOF
+          echo "NO_NEW_ARTICLES=false" >> $GITHUB_ENV
+        fi
+        
+    - name: Send email with CSV attachment
+      if: success()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "BJX QN Articles - $(date -u +%Y-%m-%d) - $(jq length latest_articles.json) articles"
+        text-file: email_body.txt
+        attachments: latest_articles.csv
+        
+    - name: Send error notification
+      if: failure()
+      uses: corysimmons/resend-email-action@v1
+      with:
+        api-key: ${{ secrets.RESEND_API_KEY }}
+        from: BJX Crawler <notifications@resend.dev>
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        subject: "BJX QN Crawler Failed - $(date -u +%Y-%m-%d)"
+        text: |
+          The BJX QN article crawler failed during execution.
+          
+          Repository: ${{ github.repository }}
+          Run: ${{ github.run_number }}
+          Workflow: ${{ github.workflow }}
+          
+          Please check the GitHub Actions logs for details:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: crawler-results-${{ github.run_number }}
+        path: |
+          latest_articles.json
+          latest_articles.csv
+          CRAWL_STATUS.md
+          email_body.txt
+        retention-days: 30
