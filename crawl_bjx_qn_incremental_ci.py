@@ -20,6 +20,7 @@ from crawl_bjx_qn_incremental import (
 )
 from datetime import datetime, timezone, timedelta
 import logging
+import json as json_module
 
 # Configure logging for CI
 # For Vercel compatibility, we'll log to stderr instead of stdout
@@ -29,6 +30,83 @@ logging.basicConfig(
     stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
+
+def crawl_and_return_data(max_pages: int = 10, force_full_crawl: bool = False):
+    """Crawl data and return it as Python objects instead of saving to files.
+    
+    This function is designed for serverless environments like Vercel where
+    file system access is restricted.
+    """
+    try:
+        logger.info(f"Starting BJX QN crawler in serverless mode")
+        logger.info(f"Max pages: {max_pages}")
+        logger.info(f"Force full crawl: {force_full_crawl}")
+        
+        # Test network connectivity first
+        logger.info("🔍 Testing network connectivity...")
+        if not test_network_connectivity():
+            logger.error("❌ Network connectivity test failed.")
+            return None
+        
+        # Load crawl state
+        state = load_crawl_state()
+        is_first_run = state.get('first_run', True) or force_full_crawl
+        last_crawl_time = state.get('last_crawl_time')
+        
+        # Determine cutoff time for incremental crawling
+        cutoff_time = None
+        if not is_first_run and last_crawl_time and not force_full_crawl:
+            # Parse last crawl time and subtract buffer to avoid missing articles
+            cutoff_time = datetime.fromisoformat(last_crawl_time.replace('Z', '+00:00')) - timedelta(hours=1)
+            logger.info(f"Incremental crawl: looking for articles newer than {cutoff_time.isoformat()}")
+        else:
+            logger.info("Full crawl mode: crawling all available articles")
+            max_pages = min(max_pages * 2, 20)  # Allow more pages for full crawl
+        
+        # Crawl new articles
+        try:
+            new_articles = crawl_incremental(BASE_URL, cutoff_time, max_pages)
+        except Exception as e:
+            logger.error(f"❌ Crawling failed: {e}")
+            return None
+        
+        if is_first_run or force_full_crawl:
+            # On first run or forced full crawl, return all articles directly
+            final_articles = new_articles
+            logger.info(f"Full crawl complete: found {len(final_articles)} articles")
+        else:
+            # On subsequent runs, merge with existing articles
+            existing_articles = load_existing_articles()
+            final_articles = merge_articles(existing_articles, new_articles)
+            logger.info(f"Incremental crawl complete: {len(new_articles)} new articles added")
+        
+        # Handle no articles scenario
+        if not final_articles:
+            if is_first_run or force_full_crawl:
+                logger.error("No articles were found during full crawl!")
+                return None
+            else:
+                logger.info("No new articles found since last crawl")
+                # Load existing articles to ensure we have something to output
+                existing_articles = load_existing_articles()
+                if existing_articles:
+                    final_articles = existing_articles
+                    logger.info(f"Using existing articles: {len(final_articles)} articles")
+                else:
+                    logger.warning("No existing articles found and no new articles")
+                    final_articles = []
+        
+        # Return the data as Python objects
+        return {
+            'articles': final_articles,
+            'new_articles_count': len(new_articles),
+            'total_articles_count': len(final_articles),
+            'is_first_run': is_first_run or force_full_crawl
+        }
+        
+    except Exception as e:
+        logger.error(f"Crawler failed: {e}")
+        return None
 
 def test_network_connectivity():
     """Test network connectivity to the target website with DNS optimization."""
@@ -86,6 +164,20 @@ def main():
         output_csv = os.getenv('OUTPUT_CSV', 'articles.csv')
         force_full_crawl = os.getenv('FORCE_FULL_CRAWL', 'false').lower() == 'true'
         
+        # For Vercel/serverless environments, return data directly instead of saving files
+        if os.getenv('VERCEL') == '1':
+            logger.info("Running in Vercel mode - returning data directly")
+            result = crawl_and_return_data(max_pages, force_full_crawl)
+            
+            if result is None:
+                print("ERROR: Crawling failed", file=sys.stderr)
+                sys.exit(1)
+            
+            # Output the data as JSON to stdout (this is what Vercel expects)
+            print(json_module.dumps(result, ensure_ascii=False))
+            sys.exit(0)
+        
+        # Regular CI mode - save to files
         logger.info(f"Starting BJX QN incremental crawler in CI mode")
         logger.info(f"Max pages: {max_pages}")
         logger.info(f"Output files: {output_json}, {output_csv}")

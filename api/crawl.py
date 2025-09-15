@@ -36,7 +36,8 @@ class handler(BaseHTTPRequestHandler):
                 'MAX_PAGES': max_pages,
                 'FORCE_FULL_CRAWL': force_full_crawl,
                 'OUTPUT_JSON': 'articles.json',
-                'OUTPUT_CSV': 'articles.csv'
+                'OUTPUT_CSV': 'articles.csv',
+                'VERCEL': '1'  # Signal to the crawler that we're in Vercel mode
             })
             
             # Debug information
@@ -84,30 +85,28 @@ class handler(BaseHTTPRequestHandler):
                         }
                     }
                 else:
-                    # Check if output files exist
-                    if not os.path.exists('articles.json'):
-                        response = {
-                            'success': False,
-                            'error': 'Output files not created',
-                            'details': {
-                                'stdout': result.stdout,
-                                'stderr': result.stderr,
-                                'debug_info': debug_info
-                            }
-                        }
-                    else:
-                        # Read the results
-                        with open('articles.json', 'r', encoding='utf-8') as f:
-                            articles = json.load(f)
+                    # Parse the JSON output from the crawler
+                    try:
+                        crawler_result = json.loads(result.stdout)
                         
-                        with open('articles.csv', 'r', encoding='utf-8') as f:
-                            csv_data = f.read()
+                        # Convert articles to CSV format
+                        import csv
+                        import io
+                        
+                        csv_buffer = io.StringIO()
+                        if crawler_result['articles']:
+                            fieldnames = ['title', 'date', 'url']
+                            writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+                            writer.writeheader()
+                            writer.writerows(crawler_result['articles'])
+                        csv_data = csv_buffer.getvalue()
+                        csv_buffer.close()
                         
                         response = {
                             'success': True,
-                            'message': f'Successfully crawled {len(articles)} articles',
-                            'articlesCount': len(articles),
-                            'articles': articles[:10],  # Return first 10 articles as preview
+                            'message': f"Successfully crawled {crawler_result['total_articles_count']} articles",
+                            'articlesCount': crawler_result['total_articles_count'],
+                            'articles': crawler_result['articles'][:10],  # Return first 10 articles as preview
                             'csvData': csv_data,
                             'details': {
                                 'stdout': result.stdout,
@@ -115,6 +114,18 @@ class handler(BaseHTTPRequestHandler):
                                 'debug_info': debug_info
                             },
                             'timestamp': datetime.now().isoformat()
+                        }
+                    except json.JSONDecodeError as e:
+                        # If we can't parse the JSON, it might be an error message
+                        response = {
+                            'success': False,
+                            'error': 'Failed to parse crawler output',
+                            'details': {
+                                'stdout': result.stdout,
+                                'stderr': result.stderr,
+                                'parse_error': str(e),
+                                'debug_info': debug_info
+                            }
                         }
                 
             except subprocess.TimeoutExpired:
