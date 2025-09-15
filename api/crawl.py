@@ -7,12 +7,12 @@ from datetime import datetime
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.handle_request()
+        self._handle_request()
     
     def do_POST(self):
-        self.handle_request()
+        self._handle_request()
     
-    def handle_request(self):
+    def _handle_request(self):
         try:
             # Set CORS headers
             self.send_response(200)
