@@ -260,9 +260,9 @@ def save_to_json(articles: List[Dict[str, str]], filename: str = 'articles.json'
         logger.error(f"Error saving JSON file: {e}")
 
 def save_to_csv(articles: List[Dict[str, str]], filename: str = 'articles.csv') -> None:
-    """Save articles to CSV file."""
+    """Save articles to CSV file with UTF-8 BOM for Excel compatibility."""
     try:
-        with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+        with open(filename, 'w', newline='', encoding='utf-8-sig') as f:  # ← 'utf-8-sig' adds BOM
             if articles:
                 fieldnames = ['title', 'date', 'url']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -271,7 +271,7 @@ def save_to_csv(articles: List[Dict[str, str]], filename: str = 'articles.csv') 
         logger.info(f"Saved {len(articles)} articles to {filename}")
     except Exception as e:
         logger.error(f"Error saving CSV file: {e}")
-
+        
 def main():
     """Main function to orchestrate the crawling process."""
     try:
