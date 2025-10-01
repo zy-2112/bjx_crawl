@@ -29,6 +29,9 @@ import sys
 import time
 import logging
 from typing import List, Dict
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 # Configure logging
 logging.basicConfig(
@@ -56,7 +59,7 @@ def fetch_html(url: str, timeout: int = 15, retries: int = 3) -> str:
     for attempt in range(retries):
         try:
             logger.info(f"Fetching URL: {url} (attempt {attempt + 1})")
-            response = session.get(url, timeout=timeout)
+            response = session.get(url, timeout=timeout， verify=False)
             response.raise_for_status()
             
             content = response.text
