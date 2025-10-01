@@ -10,37 +10,35 @@ Requirements:
 - requests
 - beautifulsoup4
 - lxml
+- openpyxl  # ← for Excel output
 
 Usage:
     python crawl_bjx_qn.py
 
 Output:
 - articles.json: JSON format with all article data
-- articles.csv: CSV format with columns: title, date, url
+- articles.xlsx: Excel format with columns: title, date, url
 """
 
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 import json
-import csv
 import sys
 import time
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stderr)
-    ]
+    handlers=[logging.StreamHandler(sys.stderr)]
 )
 logger = logging.getLogger(__name__)
 
 # Constants
-BASE_URL = 'https://qn.bjx.com.cn/zq'
+BASE_URL = 'https://qn.bjx.com.cn/zq'  # ← Fixed: no trailing spaces!
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -85,78 +83,51 @@ def fetch_html(url: str, timeout: int = 15, retries: int = 3) -> str:
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                raise  # Re-raise the last exception
+                raise
 
 def parse_articles(html: str, base_url: str) -> List[Dict[str, str]]:
-    """
-    Parse article information from HTML content.
-    
-    Args:
-        html: HTML content to parse
-        base_url: Base URL for resolving relative links
-        
-    Returns:
-        List of dictionaries with keys: title, date, url
-    """
     articles = []
-    
     try:
         soup = BeautifulSoup(html, 'lxml')
-        
-        # Find the container with class 'cc-list-content'
         container = soup.find('div', class_='cc-list-content')
         if not container:
             logger.error("Could not find container with class 'cc-list-content'")
             return articles
             
-        # Find the ul element within the container
         ul_element = container.find('ul')
         if not ul_element:
             logger.error("Could not find ul element within cc-list-content")
             return articles
             
-        # Find all li elements
         li_elements = ul_element.find_all('li')
         logger.info(f"Found {len(li_elements)} article items")
         
         for i, li in enumerate(li_elements):
             try:
-                # Find the link element
                 link = li.find('a')
                 if not link:
                     logger.warning(f"No link found in item {i+1}")
                     continue
                 
-                # Extract title from title attribute or text content
                 title = link.get('title', '').strip()
                 if not title:
                     title = link.get_text(strip=True)
                 
-                # Extract URL and make it absolute
                 href = link.get('href', '')
                 if not href:
                     logger.warning(f"No href found in item {i+1}")
                     continue
                 
                 url = urljoin(base_url, href)
-                
-                # Extract date from span element
                 date_span = li.find('span')
                 date = date_span.get_text(strip=True) if date_span else ''
                 
-                # Validate extracted data
                 if not title or not url:
                     logger.warning(f"Incomplete data for item {i+1}: title='{title}', url='{url}'")
                     continue
                 
-                article = {
-                    'title': title,
-                    'date': date,
-                    'url': url
-                }
-                
-                articles.append(article)
-                logger.debug(f"Extracted article: {article['title'][:50]}...")
+                articles.append({'title': title, 'date': date, 'url': url})
+                logger.debug(f"Extracted article: {title[:50]}...")
                 
             except Exception as e:
                 logger.error(f"Error parsing item {i+1}: {e}")
@@ -167,54 +138,23 @@ def parse_articles(html: str, base_url: str) -> List[Dict[str, str]]:
         
     return articles
 
-def get_next_page_url(html: str, base_url: str) -> Optional[str]:
-    """
-    Extract the URL for the next page if pagination exists.
-    
-    Args:
-        html: HTML content to parse
-        base_url: Base URL for resolving relative links
-        
-    Returns:
-        Next page URL if available, None otherwise
-    """
+def get_next_page_url(html: str, base_url: str) -> str:
     try:
         soup = BeautifulSoup(html, 'lxml')
-        
-        # Find pagination container
         pagination = soup.find('div', class_='cc-paging')
         if not pagination:
             return None
-            
-        # Look for "下一页" (next page) link
         next_link = pagination.find('a', string='下一页')
-        if not next_link:
+        if not next_link or 'disable' in next_link.get('class', []):
             return None
-            
-        # Check if the next link is disabled
-        if 'disable' in next_link.get('class', []):
-            return None
-            
         href = next_link.get('href')
         if href and href != 'javascript:;':
             return urljoin(base_url, href)
-            
     except Exception as e:
         logger.error(f"Error finding next page URL: {e}")
-        
     return None
 
-def crawl_all_pages(start_url: str, max_pages: int = 10) -> List[Dict[str, str]]:
-    """
-    Crawl all pages starting from the given URL.
-    
-    Args:
-        start_url: Starting URL to crawl
-        max_pages: Maximum number of pages to crawl (safety limit)
-        
-    Returns:
-        List of all articles from all pages
-    """
+def crawl_all_pages(start_url: str, max_pages: int = 5) -> List[Dict[str, str]]:
     all_articles = []
     current_url = start_url
     page_count = 0
@@ -222,27 +162,23 @@ def crawl_all_pages(start_url: str, max_pages: int = 10) -> List[Dict[str, str]]
     while current_url and page_count < max_pages:
         page_count += 1
         logger.info(f"Crawling page {page_count}: {current_url}")
-        
         try:
             html = fetch_html(current_url)
             articles = parse_articles(html, current_url)
-            
-            if not articles:
-                logger.warning(f"No articles found on page {page_count}")
-            else:
+            if articles:
                 all_articles.extend(articles)
                 logger.info(f"Extracted {len(articles)} articles from page {page_count}")
+            else:
+                logger.warning(f"No articles found on page {page_count}")
             
-            # Get next page URL
             next_url = get_next_page_url(html, current_url)
             if next_url:
                 logger.info(f"Found next page: {next_url}")
                 current_url = next_url
-                time.sleep(1)  # Be respectful to the server
+                time.sleep(1)
             else:
                 logger.info("No more pages found")
                 break
-                
         except Exception as e:
             logger.error(f"Error crawling page {page_count}: {e}")
             break
@@ -251,7 +187,6 @@ def crawl_all_pages(start_url: str, max_pages: int = 10) -> List[Dict[str, str]]
     return all_articles
 
 def save_to_json(articles: List[Dict[str, str]], filename: str = 'articles.json') -> None:
-    """Save articles to JSON file."""
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(articles, f, ensure_ascii=False, indent=2)
@@ -259,50 +194,65 @@ def save_to_json(articles: List[Dict[str, str]], filename: str = 'articles.json'
     except Exception as e:
         logger.error(f"Error saving JSON file: {e}")
 
-def save_to_csv(articles: List[Dict[str, str]], filename: str = 'articles.csv') -> None:
-    """Save articles to CSV file with UTF-8 BOM for Excel compatibility."""
+# ✅ NEW: Save to Excel (XLSX)
+def save_to_xlsx(articles: List[Dict[str, str]], filename: str = 'articles.xlsx') -> None:
     try:
-        with open(filename, 'w', newline='', encoding='utf-8-sig') as f:  # ← 'utf-8-sig' adds BOM
-            if articles:
-                fieldnames = ['title', 'date', 'url']
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(articles)
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "BJX Articles"
+        
+        # Header
+        ws.append(['Title', 'Date', 'URL'])
+        
+        # Data
+        for article in articles:
+            ws.append([article['title'], article['date'], article['url']])
+        
+        # Auto-adjust column widths (optional)
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 80)
+            ws.column_dimensions[column].width = adjusted_width
+
+        wb.save(filename)
         logger.info(f"Saved {len(articles)} articles to {filename}")
     except Exception as e:
-        logger.error(f"Error saving CSV file: {e}")
-        
+        logger.error(f"Error saving Excel file: {e}")
+
 def main():
-    """Main function to orchestrate the crawling process."""
     try:
         logger.info("Starting BJX QN website crawler...")
         logger.info(f"Target URL: {BASE_URL}")
         
-        # Crawl articles from all pages (limiting to first 5 pages for safety)
         articles = crawl_all_pages(BASE_URL, max_pages=5)
         
         if not articles:
             logger.error("No articles were extracted!")
             sys.exit(1)
         
-        # Save results in both formats
+        # ✅ Save to JSON and Excel (not CSV)
         save_to_json(articles)
-        save_to_csv(articles)
+        save_to_xlsx(articles)  # ← New!
         
-        # Print summary
         print(f"\n✅ Successfully crawled {len(articles)} articles")
         print(f"📄 Results saved to:")
         print(f"   - articles.json")
-        print(f"   - articles.csv")
+        print(f"   - articles.xlsx")  # ← Updated
         
-        # Show first few articles as preview
         if articles:
             print(f"\n🔍 Preview of first 3 articles:")
             for i, article in enumerate(articles[:3], 1):
                 print(f"{i}. {article['title'][:60]}...")
                 print(f"   Date: {article['date']}")
-                print(f"   URL: {article['url']}")
-                print()
+                print(f"   URL: {article['url']}\n")
         
     except KeyboardInterrupt:
         logger.info("Crawling interrupted by user")
