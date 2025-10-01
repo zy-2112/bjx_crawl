@@ -26,8 +26,8 @@ class handler(BaseHTTPRequestHandler):
             # Prepare email data
             email_data = {
                 "from": "BJX Crawler <notifications@resend.dev>",
-                "to": ['info@gaincue.com'],
-                # "to": [notification_email],
+                #"to": ['info@gaincue.com'],
+                "to": [notification_email],
                 "subject": subject,
                 "text": text_content
             }
