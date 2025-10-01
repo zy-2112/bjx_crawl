@@ -50,7 +50,7 @@ HEADERS = {
     'Upgrade-Insecure-Requests': '1',
 }
 
-def fetch_html(url: str, timeout: int = 10, retries: int = 3) -> str:
+def fetch_html(url: str, timeout: int = 15, retries: int = 3) -> str:
     """
     Fetch HTML content from URL with retry logic and error handling.
     
@@ -69,16 +69,51 @@ def fetch_html(url: str, timeout: int = 10, retries: int = 3) -> str:
     session.headers.update(HEADERS)
     
     for attempt in range(retries):
-        try:
-            logger.info(f"Fetching URL: {url} (attempt {attempt + 1})")
+       logger.info(f"Fetching URL: {url} (attempt {attempt + 1})")
             response = session.get(url, timeout=timeout)
             response.raise_for_status()
             
-            # Check if we got valid content
-            if len(response.text) < 100:
-                logger.warning(f"Response too short ({len(response.text)} chars), may be blocked")
-                
-            return response.text
+            # 🔍 Check for blocking signals in the response
+            content = response.text
+            
+            # 1. Too short? Likely blocked or empty
+            if len(content) < 100:
+                logger.warning(f"Response too short ({len(content)} chars), may be blocked")
+                raise requests.RequestException("Response too short – possible block")
+            
+            # 2. Check for common blocking keywords (case-insensitive)
+            lower_content = content.lower()
+            blocking_phrases = [
+                'captcha',
+                'access denied',
+                'not available',
+                'request blocked',
+                'anti-bot',
+                'cloudflare',
+                '验证',
+                '拒绝访问',
+                '非法请求',
+                'robot'
+            ]
+            
+            if any(phrase in lower_content for phrase in blocking_phrases):
+                logger.error(f"Blocking detected in response (matched phrases). Preview: {content[:200]}")
+                raise requests.RequestException("Blocked by target website (anti-bot measure detected)")
+            
+            # 3. Check if it's actually the expected page (e.g., contains expected structure)
+            if 'cc-list-content' not in content:
+                logger.warning("Expected content container 'cc-list-content' not found in response")
+                # Don't fail immediately — some pages might be edge cases
+                # But in your case, this is a strong signal of failure
+            
+            return content
+            
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                raise
             
         except requests.exceptions.RequestException as e:
             logger.warning(f"Attempt {attempt + 1} failed: {e}")
