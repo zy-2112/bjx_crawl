@@ -39,7 +39,7 @@ class handler(BaseHTTPRequestHandler):
                 csv_base64 = base64.b64encode(csv_data.encode('utf-8')).decode('utf-8')
                 email_data["attachments"] = [
                     {
-                        "filename": "articles.csv",
+                        "filename": "articles.xlsx",
                         "content": csv_base64
                     }
                 ]
@@ -92,7 +92,7 @@ class handler(BaseHTTPRequestHandler):
                 'MAX_PAGES': max_pages,
                 'FORCE_FULL_CRAWL': force_full_crawl,
                 'OUTPUT_JSON': 'articles.json',
-                'OUTPUT_CSV': 'articles.csv',
+                'OUTPUT_CSV': 'articles.xlsx',
                 'VERCEL': '1'  # Signal to the crawler that we're in Vercel mode
             })
             
