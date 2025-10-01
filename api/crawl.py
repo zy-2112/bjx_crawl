@@ -35,14 +35,53 @@ class handler(BaseHTTPRequestHandler):
             # Add attachment if CSV data is provided
             if csv_data:
                 import base64
-                # Encode CSV data as base64 for attachment
-                csv_base64 = base64.b64encode(csv_data.encode('utf-8')).decode('utf-8')
-                email_data["attachments"] = [
-                    {
-                        "filename": "articles.xlsx",
-                        "content": csv_base64
-                    }
-                ]
+                from openpyxl import Workbook
+                from io import BytesIO
+                import csv
+                import io
+
+            # Create actual XLSX file
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "BJX Articles"
+
+            # Parse CSV and write to Excel
+            csv_reader = csv.DictReader(io.StringIO(csv_data))
+
+            # Header
+            ws.append(['Title', 'Date', 'URL'])
+
+            # Data rows
+            for row in csv_reader:
+                ws.append([row['title'], row['date'], row['url']])
+
+            # Auto-adjust column widths
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass      
+                adjusted_width = min(max_length + 2, 80)
+                ws.column_dimensions[column].width = adjusted_width
+
+            # Save to bytes
+            xlsx_buffer = BytesIO()
+            wb.save(xlsx_buffer)
+            xlsx_buffer.seek(0)
+            xlsx_bytes = xlsx_buffer.read()
+
+            # Encode as base64
+            xlsx_base64 = base64.b64encode(xlsx_bytes).decode('utf-8')
+            email_data["attachments"] = [
+                {
+                    "filename": "articles.xlsx",
+                    "content": xlsx_base64
+                }
+            ]
             
             # Send email via Resend API
             headers = {
